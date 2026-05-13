@@ -62,11 +62,23 @@ cron.schedule('0 * * * *', async () => {
 
 // ── Iniciar servidor ───────────────────────────────────────────────
 async function start() {
-  await migrate(); // Cria tabelas se não existirem
-  app.listen(PORT, () => {
-    console.log(`\n📡 PostAllTon SaaS API — http://localhost:${PORT}`);
-    console.log('   Multiusuário | PostgreSQL | Stripe | Mercado Pago\n');
+  // Inicia o servidor PRIMEIRO — Render precisa detectar a porta
+  await new Promise((resolve) => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n📡 PostAllTon SaaS API — http://0.0.0.0:${PORT}`);
+      console.log('   Multiusuário | PostgreSQL | Stripe | Mercado Pago\n');
+      resolve();
+    });
   });
+
+  // Depois tenta conectar ao banco (não trava o servidor se falhar)
+  try {
+    await migrate();
+    console.log('✅ Banco de dados conectado e migrations executadas.');
+  } catch (err) {
+    console.error('⚠️  Banco não conectado — configure DATABASE_URL nas variáveis de ambiente.');
+    console.error('   Erro:', err.message);
+  }
 }
 
 start().catch(console.error);
