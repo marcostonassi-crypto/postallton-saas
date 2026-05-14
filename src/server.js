@@ -43,6 +43,27 @@ app.get('/', (_req, res) => res.json({
 app.use('/api/auth',    authRouter);
 app.use('/api/payment', paymentRouter);
 
+// Rota de ativação admin — pública mas protegida por chave secreta
+app.post('/api/activate', async (req, res) => {
+  const { secret, email, plan = 'business' } = req.body;
+  const ADMIN_SECRET = process.env.ADMIN_SECRET || 'postallton_admin_2026';
+  if (secret !== ADMIN_SECRET) return res.status(403).json({ error: 'Chave inválida.' });
+  const targetEmail = email || process.env.ADMIN_EMAILS?.split(',')[0]?.trim();
+  if (!targetEmail) return res.status(400).json({ error: 'Email não informado.' });
+  try {
+    const { query } = await import('./models/db.js');
+    const { rows } = await query(
+      `UPDATE users SET plan=$1, plan_type='lifetime', status='active', updated_at=NOW()
+       WHERE email=$2 RETURNING id, name, email, plan, status`,
+      [plan, targetEmail]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado. Crie a conta primeiro.' });
+    res.json({ message: `✅ Plano ${plan} ativado!`, user: rows[0] });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Rotas protegidas (requer login) ────────────────────────────────
 app.use('/api/user',   authMiddleware, userRouter);
 app.use('/api/social', authMiddleware, socialRouter);
