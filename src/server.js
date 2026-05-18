@@ -4,69 +4,58 @@ import dotenv from 'dotenv';
 import cron from 'node-cron';
 import { migrate } from './models/migrate.js';
 import { authRouter }    from './routes/auth.js';
-import { socialRouter }  from './routes/social.js';
-import { postRouter }    from './routes/post.js';
+import { credRouter }    from './routes/creds.js';
 import { paymentRouter } from './routes/payment.js';
 import { userRouter }    from './routes/user.js';
 import { webhookRouter } from './routes/webhook.js';
 import { authMiddleware } from './middleware/auth.js';
 import { planMiddleware } from './middleware/plan.js';
+import { postRouter }    from './routes/post.js';
 import { checkExpiredSubscriptions } from './services/subscription.js';
+import { query } from './models/db.js';
 
 dotenv.config();
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
-// ── Webhook do Stripe (precisa de raw body) ────────────────────────
+// Webhook Stripe precisa raw body
 app.use('/api/webhook', express.raw({ type: 'application/json' }), webhookRouter);
 
-// ── Middleware global ──────────────────────────────────────────────
-app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || '*',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ],
-  credentials: true,
-}));
+app.use(cors({ origin: '*', credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 
 // ── Rotas públicas ─────────────────────────────────────────────────
 app.get('/', (_req, res) => res.json({
-  name:    'PostAllTon SaaS API',
-  version: '2.0.0',
-  status:  'online',
-  slogan:  'Um clique. Todas as redes.',
+  name: 'PostAllTon SaaS API', version: '3.0.0', status: 'online',
+  slogan: 'Um clique. Todas as redes.'
 }));
 
 app.use('/api/auth',    authRouter);
 app.use('/api/payment', paymentRouter);
 
-// Rota de ativação admin — pública mas protegida por chave secreta
+// ── Ativação admin (protegida por chave secreta) ───────────────────
 app.post('/api/activate', async (req, res) => {
   const { secret, email, plan = 'business' } = req.body;
-  const ADMIN_SECRET = process.env.ADMIN_SECRET || 'postallton_admin_2026';
-  if (secret !== ADMIN_SECRET) return res.status(403).json({ error: 'Chave inválida.' });
+  if (secret !== (process.env.ADMIN_SECRET || 'postallton_admin_2026')) {
+    return res.status(403).json({ error: 'Chave inválida.' });
+  }
   const targetEmail = email || process.env.ADMIN_EMAILS?.split(',')[0]?.trim();
   if (!targetEmail) return res.status(400).json({ error: 'Email não informado.' });
   try {
-    const { query } = await import('./models/db.js');
     const { rows } = await query(
       `UPDATE users SET plan=$1, plan_type='lifetime', status='active', updated_at=NOW()
        WHERE email=$2 RETURNING id, name, email, plan, status`,
       [plan, targetEmail]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado. Crie a conta primeiro.' });
+    if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado.' });
     res.json({ message: `✅ Plano ${plan} ativado!`, user: rows[0] });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Rotas protegidas (requer login) ────────────────────────────────
+// ── Rotas protegidas ───────────────────────────────────────────────
 app.use('/api/user',   authMiddleware, userRouter);
-app.use('/api/social', authMiddleware, socialRouter);
+app.use('/api/creds',  authMiddleware, credRouter);
 app.use('/api/post',   authMiddleware, planMiddleware, postRouter);
 
 // ── Error handler ──────────────────────────────────────────────────
@@ -75,30 +64,24 @@ app.use((err, _req, res, _next) => {
   res.status(err.status || 500).json({ error: err.message });
 });
 
-// ── Cron: verificar assinaturas expiradas (a cada hora) ────────────
+// ── Cron: verificar assinaturas expiradas ─────────────────────────
 cron.schedule('0 * * * *', async () => {
-  console.log('[CRON] Verificando assinaturas expiradas...');
   await checkExpiredSubscriptions();
 });
 
-// ── Iniciar servidor ───────────────────────────────────────────────
+// ── Start ──────────────────────────────────────────────────────────
 async function start() {
-  // Inicia o servidor PRIMEIRO — Render precisa detectar a porta
-  await new Promise((resolve) => {
+  await new Promise(resolve => {
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`\n📡 PostAllTon SaaS API — http://0.0.0.0:${PORT}`);
-      console.log('   Multiusuário | PostgreSQL | Stripe | Mercado Pago\n');
+      console.log(`\n📡 PostAllTon API v3 — http://0.0.0.0:${PORT}\n`);
       resolve();
     });
   });
-
-  // Depois tenta conectar ao banco (não trava o servidor se falhar)
   try {
     await migrate();
-    console.log('✅ Banco de dados conectado e migrations executadas.');
-  } catch (err) {
-    console.error('⚠️  Banco não conectado — configure DATABASE_URL nas variáveis de ambiente.');
-    console.error('   Erro:', err.message);
+    console.log('✅ Banco conectado.');
+  } catch(e) {
+    console.error('⚠️  Banco offline:', e.message);
   }
 }
 
