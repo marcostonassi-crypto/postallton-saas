@@ -89,8 +89,9 @@ async function publish(platform, conn, { caption, mediaUrls }) {
     }
 
     case 'bluesky': {
-      const identifier = conn.account_id;
-      const password   = token;
+      // identifier salvo como access_token, password salvo como refresh_token
+      const identifier = conn.account_id || conn.access_token;
+      const password   = conn.refresh_token || token;
       const sessionRes = await fetch('https://bsky.social/xrpc/com.atproto.server.createSession', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ identifier, password })
