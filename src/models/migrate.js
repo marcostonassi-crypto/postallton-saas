@@ -67,6 +67,7 @@ export async function migrate() {
         id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id             UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
         preferred_networks  TEXT[] DEFAULT '{}',
+        audience_profile    VARCHAR(50) DEFAULT NULL,
         default_caption     TEXT,
         timezone            VARCHAR(50) DEFAULT 'America/Sao_Paulo',
         language            VARCHAR(10) DEFAULT 'pt',
@@ -74,6 +75,10 @@ export async function migrate() {
         updated_at          TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+    // Adicionar audience_profile se não existir (migration incremental)
+    await client.query(`
+      ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS audience_profile VARCHAR(50) DEFAULT NULL
+    `).catch(() => {});
 
     // Posts publicados
     await client.query(`
