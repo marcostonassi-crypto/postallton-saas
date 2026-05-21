@@ -140,3 +140,30 @@ userRouter.put('/me', async (req, res) => {
   );
   res.json({ user: rows[0] });
 });
+
+// GET /api/user/preferences
+userRouter.get('/preferences', async (req, res) => {
+  const { rows } = await query(
+    `SELECT preferred_networks, audience_profile, language, timezone
+     FROM user_preferences WHERE user_id = $1`,
+    [req.user.id]
+  );
+  res.json({ preferences: rows[0] || {} });
+});
+
+// POST /api/user/preferences
+userRouter.post('/preferences', async (req, res) => {
+  const { preferredNetworks, audienceProfile, language, timezone } = req.body;
+  await query(
+    `INSERT INTO user_preferences (user_id, preferred_networks, audience_profile, language, timezone)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id) DO UPDATE SET
+       preferred_networks = COALESCE($2, user_preferences.preferred_networks),
+       audience_profile   = COALESCE($3, user_preferences.audience_profile),
+       language           = COALESCE($4, user_preferences.language),
+       timezone           = COALESCE($5, user_preferences.timezone),
+       updated_at         = NOW()`,
+    [req.user.id, preferredNetworks||null, audienceProfile||null, language||null, timezone||null]
+  );
+  res.json({ message: 'Preferências salvas!' });
+});
